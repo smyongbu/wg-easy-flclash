@@ -5,6 +5,8 @@ wireguard/
 *.db-*
 *.sqlite*
 *.conf
+*-flclash.yaml
+exports/
 *.key
 *.pem
 *.token

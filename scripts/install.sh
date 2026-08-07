@@ -20,7 +20,7 @@ chmod 700 runtime
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo '已根据 .env.example 创建 .env；如网段不同，请安装后修改 CN_DIRECT_EXTRA_CIDRS 并重启容器。'
+  echo '已根据 .env.example 创建 .env；如网段不同，请安装后修改 FLCLASH_REMOTE_CIDRS 并重启容器。'
 fi
 
 if docker compose version >/dev/null 2>&1; then

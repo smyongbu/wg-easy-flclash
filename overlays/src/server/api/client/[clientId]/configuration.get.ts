@@ -1,73 +1,7 @@
-import { readFile } from 'node:fs/promises';
-import isCidr from 'is-cidr';
 import { ClientGetSchema } from '#db/repositories/client/types';
 
-const CN_DIRECT_ALLOWED_IPS_FILE =
-  process.env.CN_DIRECT_ALLOWED_IPS_FILE ??
-  '/usr/local/share/wg-easy-cn-direct/cn-direct-allowedips.txt';
-
-const CN_DIRECT_EXTRA_CIDRS = (
-  process.env.CN_DIRECT_EXTRA_CIDRS ?? '192.168.1.0/24,10.0.8.0/24'
-)
-  .split(/[\s,]+/)
-  .map((route) => route.trim())
-  .filter(Boolean);
-
-async function applyCnDirectProfile(config: string) {
-  let rawRoutes: string;
-
-  try {
-    rawRoutes = await readFile(CN_DIRECT_ALLOWED_IPS_FILE, 'utf8');
-  } catch {
-    throw createError({
-      statusCode: 503,
-      statusMessage: 'CN direct route list is unavailable',
-    });
-  }
-
-  const publicRoutes = rawRoutes
-    .split(/[\s,]+/)
-    .map((route) => route.trim())
-    .filter(Boolean);
-
-  const routes = [...new Set([...publicRoutes, ...CN_DIRECT_EXTRA_CIDRS])];
-
-  if (
-    publicRoutes.length < 100 ||
-    routes.length > 20_000 ||
-    routes.some((route) => isCidr(route) !== 4)
-  ) {
-    throw createError({
-      statusCode: 503,
-      statusMessage: 'CN direct route list is invalid',
-    });
-  }
-
-  const profileHeader = [
-    '# 国内 IPv4 使用设备自身网络',
-    '# 国外 IPv4 通过 WireGuard',
-    ...(CN_DIRECT_EXTRA_CIDRS.length
-      ? [`# 自定义 WireGuard 网段：${CN_DIRECT_EXTRA_CIDRS.join(', ')}`]
-      : []),
-    '# 此配置不接管 IPv6，也不设置 DNS',
-    '',
-  ].join('\n');
-
-  const withoutDns = config.replace(/^DNS\s*=.*(?:\r?\n|$)/m, '');
-  const withRoutes = withoutDns.replace(
-    /^AllowedIPs\s*=.*$/m,
-    `AllowedIPs = ${routes.join(', ')}`
-  );
-
-  if (withRoutes === withoutDns) {
-    throw createError({
-      statusCode: 500,
-      statusMessage: 'Unable to create CN direct configuration',
-    });
-  }
-
-  return profileHeader + withRoutes;
-}
+const DEFAULT_REMOTE_CIDRS = '192.168.1.0/24';
+const DEFAULT_ENDPOINT_IP_VERSION = 'dual';
 
 export default definePermissionEventHandler(
   'clients',
@@ -87,21 +21,65 @@ export default definePermissionEventHandler(
       });
     }
 
-    const mode = getQuery(event).mode;
-    let config = await WireGuard.getClientConfiguration({ clientId });
-    const isCnDirect = mode === 'cn-direct';
+    const wireGuardConfig = await WireGuard.getClientConfiguration({
+      clientId,
+    });
+    const isFlClash = getQuery(event).format === 'flclash';
 
-    if (isCnDirect) {
-      config = await applyCnDirectProfile(config);
+    if (!isFlClash) {
+      setHeader(
+        event,
+        'Content-Disposition',
+        `attachment; filename="${WireGuard.cleanClientFilename(client.name) || clientId}.conf"`
+      );
+      setHeader(event, 'Content-Type', 'application/octet-stream');
+      return wireGuardConfig;
     }
 
+    let profile: string;
+    try {
+      const wgInterface = await Database.interfaces.get();
+      const parsedWireGuardConfig = parseWireGuardClientConfig(wireGuardConfig);
+      const clientHasIpv6Tunnel =
+        !WG_ENV.DISABLE_IPV6 &&
+        parsedWireGuardConfig.ipv6Address !== undefined &&
+        parsedWireGuardConfig.allowedIps.includes('::/0');
+      const configuredCidrs = parseFlClashRemoteCidrs(
+        process.env.FLCLASH_REMOTE_CIDRS ?? DEFAULT_REMOTE_CIDRS
+      );
+      const remoteCidrs = [
+        wgInterface.ipv4Cidr,
+        ...(clientHasIpv6Tunnel ? [wgInterface.ipv6Cidr] : []),
+        ...configuredCidrs,
+      ];
+      const endpointIpVersion = parseFlClashEndpointIpVersion(
+        process.env.FLCLASH_ENDPOINT_IP_VERSION ?? DEFAULT_ENDPOINT_IP_VERSION
+      );
+
+      profile = generateFlClashConfig(wireGuardConfig, {
+        remoteCidrs,
+        endpointIpVersion,
+      });
+    } catch {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Unable to generate FlClash configuration',
+      });
+    }
+
+    const filename =
+      WireGuard.cleanClientFilename(client.name) || String(clientId);
     setHeader(
       event,
       'Content-Disposition',
-      `attachment; filename="${WireGuard.cleanClientFilename(client.name) || clientId}${isCnDirect ? '-cn-direct' : ''}.conf"`
+      `attachment; filename="${filename}-flclash.yaml"`
     );
-
-    setHeader(event, 'Content-Type', 'application/octet-stream');
-    return config;
+    setHeader(event, 'Content-Type', 'application/yaml; charset=utf-8');
+    setHeader(event, 'Cache-Control', 'private, no-store, max-age=0');
+    setHeader(event, 'Pragma', 'no-cache');
+    setHeader(event, 'Expires', '0');
+    setHeader(event, 'X-Content-Type-Options', 'nosniff');
+    setHeader(event, 'Referrer-Policy', 'no-referrer');
+    return profile;
   }
 );

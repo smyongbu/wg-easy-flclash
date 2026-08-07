@@ -4,10 +4,7 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - '**.md'
-  workflow_run:
-    workflows: ['更新国内路由表']
-    types: [completed]
+      - "**.md"
   workflow_dispatch:
 
 permissions:
@@ -16,14 +13,10 @@ permissions:
 
 jobs:
   build:
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: 检出源码
         uses: actions/checkout@v6
-
-      - name: 校验国内直连路由表
-        run: node scripts/validate-routes.mjs
 
       - name: 启用 QEMU
         uses: docker/setup-qemu-action@v4
@@ -42,10 +35,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/wg-easy-cn-direct
+          images: ghcr.io/${{ github.repository_owner }}/wg-easy-flclash
           tags: |
             type=raw,value=latest
-            type=raw,value=15.3.0-cn-direct
+            type=raw,value=15.3.0-flclash
             type=sha
 
       - name: 构建并推送镜像

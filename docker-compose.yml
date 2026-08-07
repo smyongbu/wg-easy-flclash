@@ -4,7 +4,7 @@ services:
       context: .
       args:
         WG_EASY_VERSION: ${WG_EASY_VERSION:-15.3.0}
-    image: ${WG_EASY_IMAGE:-wg-easy-cn-direct:15.3.0}
+    image: ${WG_EASY_IMAGE:-wg-easy-flclash:15.3.0}
     container_name: wg-easy
     environment:
       - PORT=51821
@@ -12,13 +12,14 @@ services:
       - INIT_ENABLED=false
       - INSECURE=true
       - DISABLE_IPV6=true
-      - CN_DIRECT_EXTRA_CIDRS=${CN_DIRECT_EXTRA_CIDRS-192.168.1.0/24,10.0.8.0/24}
+      - FLCLASH_REMOTE_CIDRS=${FLCLASH_REMOTE_CIDRS-192.168.1.0/24}
+      - FLCLASH_ENDPOINT_IP_VERSION=${FLCLASH_ENDPOINT_IP_VERSION-ipv6}
     volumes:
       - ./runtime:/etc/wireguard
       - /lib/modules:/lib/modules:ro
     ports:
-      - '${WG_PORT:-51820}:51820/udp'
-      - '${WG_UI_BIND:-0.0.0.0}:${WG_UI_PORT:-51821}:51821/tcp'
+      - "${WG_PORT:-51820}:51820/udp"
+      - "${WG_UI_BIND:-0.0.0.0}:${WG_UI_PORT:-51821}:51821/tcp"
     cap_add:
       - NET_ADMIN
       - SYS_MODULE

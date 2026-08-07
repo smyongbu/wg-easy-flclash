@@ -14,11 +14,26 @@ RUN curl --fail --location --retry 3 \
     tar -xzf wg-easy.tar.gz && \
     rm wg-easy.tar.gz
 
+WORKDIR /build/wg-easy-${WG_EASY_VERSION}/src
+RUN pnpm install --frozen-lockfile
+
 WORKDIR /build/wg-easy-${WG_EASY_VERSION}
 COPY overlays/ ./
 
 WORKDIR /build/wg-easy-${WG_EASY_VERSION}/src
-RUN pnpm install --frozen-lockfile && pnpm exec nuxt build
+RUN pnpm exec prettier --check \
+      "app/components/ClientCard/Config.vue" \
+      "server/api/client/[clientId]/configuration.get.ts" \
+      "server/utils/flClash.ts" \
+      "test/unit/flClash.spec.ts" && \
+    pnpm exec vitest run --project unit test/unit/flClash.spec.ts \
+      --coverage.enabled=false && \
+    pnpm exec eslint \
+      "app/components/ClientCard/Config.vue" \
+      "server/api/client/[clientId]/configuration.get.ts" \
+      "server/utils/flClash.ts" \
+      "test/unit/flClash.spec.ts" && \
+    pnpm exec nuxt build
 
 FROM ghcr.io/wg-easy/wg-easy:${WG_EASY_VERSION}
 ARG WG_EASY_VERSION
@@ -27,12 +42,8 @@ COPY --from=web-build \
   /build/wg-easy-${WG_EASY_VERSION}/src/.output/public /app/public
 COPY --from=web-build \
   /build/wg-easy-${WG_EASY_VERSION}/src/.output/server /app/server
-COPY data/cn-direct-allowedips.txt \
-  /usr/local/share/wg-easy-cn-direct/cn-direct-allowedips.txt
 
-ENV CN_DIRECT_ALLOWED_IPS_FILE=/usr/local/share/wg-easy-cn-direct/cn-direct-allowedips.txt
-
-LABEL org.opencontainers.image.title="wg-easy 国内直连配置版"
-LABEL org.opencontainers.image.description="为 wg-easy 增加国内 IPv4 使用客户端本机网络的配置下载开关"
-LABEL org.opencontainers.image.source="https://github.com/smyongbu/wg-easy-cn-direct"
+LABEL org.opencontainers.image.title="wg-easy FlClash 分流配置版"
+LABEL org.opencontainers.image.description="为 wg-easy 增加安全生成 FlClash 国内直连分流配置的下载按钮"
+LABEL org.opencontainers.image.source="https://github.com/smyongbu/wg-easy-flclash"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
